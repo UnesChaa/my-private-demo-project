@@ -1,0 +1,169 @@
+name: Full Nightly Pentest CI
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 0 * * *"    # runs every day at midnight UTC
+
+jobs:
+  run-if-pr-exists:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if no PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+            });
+
+            if (prs.data.length === 0) {
+              core.setFailed("No PRs found. Workflow failed.");
+            }
+
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    needs: run-if-pr-exists
+
+    steps:
+    # ===============================
+    # Checkout & Setup
+    # ===============================
+    - name: Checkout repo
+      uses: actions/checkout@v6
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: "24"
+
+    # ===============================
+    # CodeQL (SAST)
+    # ===============================
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v4
+      with:
+        languages: javascript
+
+    - name: Get Node version
+      id: node
+      run: |
+        echo "version=$(node -v)" >> $GITHUB_OUTPUT
+    - name: Cache node_modules
+      uses: actions/cache@v3
+      with:
+        path: |
+            ~/.npm
+            **/node_modules
+        key: ${{ runner.os }}-node-${{ steps.node.outputs.version }}-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+    - name: Install dependencies
+      run: npm install
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v4
+
+    # ===============================
+    # Supply-Chain Security
+    # ===============================
+
+    - name: npm Audit
+      run: npm audit --audit-level=high || true # continue the scan even if high or critical alerts were found
+
+    #- name: Secrets Scan — Gitleaks
+    #  uses: gitleaks/gitleaks-action@v2.3.4
+
+    # ===============================
+    # Start & Test Application
+    # ===============================
+    - name: Start Juice Shop
+      run: |
+        nohup npm start > juice-shop.log 2>&1 & disown
+
+    - name: Wait for server
+      run: npx wait-on http://localhost:3000 --timeout 120000
+
+    - name: Smoke test
+      run: curl -fI http://localhost:3000
+    # ===============================
+    # DAST (ZAP / Nikto / Nuclei)
+    # ===============================
+    - name: Run Nikto on target
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y nikto
+        nikto -h http://localhost:3000 -Format txt -o nikto_scan.txt
+    - name: Upload Nikto Reports
+      if: always()
+      uses: actions/upload-artifact@v6
+      with:
+          name: nikto_scan
+          path: |
+           nikto_scan.txt
+
+    # ===============================
+    # Nuclei
+    # ===============================
+    
+    - name: Run Nuclei scan
+      uses: projectdiscovery/nuclei-action@main
+      with:
+        target: http://localhost:3000
+        output: nuclei_report.json
+
+    - name: Upload Nuclei report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuclei-scan
+        path: nuclei_report.json   
+     
+    # ===============================
+    # ZAP Full scan
+    # ===============================
+    - name: run Zap full scan
+      uses: zaproxy/action-full-scan@v0.13.0
+      with:
+          target: "http://localhost:3000"
+          fail_action: false
+          cmd_options: > 
+            -a 
+            -j
+            -J full_report.json
+          artifact_name: "full-scan"
+
+    - name: Upload ZAP full Reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+            name: zap-full-scan
+            path: |
+              full_report.json
+              full_report.html
+
+
+       #-------Summary in Run-------# 
+    - name: full ZAP Alert Summary
+      run: | 
+         echo "##  OWASP ZAP Full Scan Summary" >> $GITHUB_STEP_SUMMARY
+         HIGH=$(jq '[.site[].alerts[] | select(.riskcode == "3")] | length' full_report.json)
+         MEDIUM=$(jq '[.site[].alerts[] | select(.riskcode == "2")] | length' full_report.json)
+         LOW=$(jq '[.site[].alerts[] | select(.riskcode == "1")] | length' full_report.json)
+         INFO=$(jq '[.site[].alerts[] | select(.riskcode == "0")] | length' full_report.json)
+         
+         echo "|  Severity | Count |" >> $GITHUB_STEP_SUMMARY
+         echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+         echo "| 🔴 High   | $HIGH |" >> $GITHUB_STEP_SUMMARY
+         echo "| 🟠 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+         echo "| 🟡 Low    | $LOW |" >> $GITHUB_STEP_SUMMARY
+         echo "| 🔵 Info   | $INFO |" >> $GITHUB_STEP_SUMMARY
+      
+
+          
