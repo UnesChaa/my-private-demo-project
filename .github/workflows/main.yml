@@ -37,7 +37,6 @@ jobs:
                           Output:
                           ------
                           ${result}
-                          ------
                           `; 
 
             await github.rest.issues.createComment({
