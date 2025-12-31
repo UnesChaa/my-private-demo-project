@@ -1,4 +1,4 @@
-name: Automated Pentest
+name: Automated-Pentest
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   pull-requests: write
   
 jobs:
-  pentest:
+  Automated-Pentest:
     runs-on: ubuntu-latest
 
     steps:
@@ -37,7 +37,6 @@ jobs:
                           Output:
                           ------
                           ${result}
-                          ------
                           `; 
 
             await github.rest.issues.createComment({
