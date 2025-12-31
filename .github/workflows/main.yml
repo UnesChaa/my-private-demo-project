@@ -6,6 +6,10 @@ on:
     branches: ["main"]
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+  pull-requests: write
+  
 jobs:
   pentest:
     runs-on: ubuntu-latest
