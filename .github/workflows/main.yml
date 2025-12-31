@@ -2,8 +2,6 @@ name: Automated Pentest
 
 on:
   pull_request:
-  push:
-    branches: ["main"]
   workflow_dispatch: {}
 
 permissions:
@@ -37,9 +35,9 @@ jobs:
             const body = 
                           ` **Status:** PASS
                           Output:
-                          \`\`\`
+                          ------
                           ${result}
-                          \`\`\`
+                          ------
                           `; 
 
             await github.rest.issues.createComment({
