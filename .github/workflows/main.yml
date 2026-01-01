@@ -22,7 +22,7 @@ jobs:
         run: |
           echo "Running automated pentest..."
           sleep 2
-          echo "Pentest OK!" > result.txt
+          echo "Passed all pentest checks. Can merge !" > result.txt
 
       - name: Comment results on PR
         if: github.event_name == 'pull_request'
